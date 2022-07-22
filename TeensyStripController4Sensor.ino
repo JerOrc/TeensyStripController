@@ -77,7 +77,7 @@ byte pinList[numPins] = {2, 14, 7, 8, 6, 20, 21, 5};
 // Photo Sensor 
   #define SensorPin A9 // Defines the analog Pinnumber for the LDR Sensor - choose a pin in {A4, A5, A8, A9, A10, A11, A12, A13}
   #define SensorDelay 5000 // Defines the delay between sensor reading (in ms)  
-  #define NightPercent 0.2 // Defines the darkness percent of the LEDs when the night becomes...
+  #define NightPercent 0.2 // Defines the max darkness percent of the LEDs when the night becomes...
   elapsedMillis sensorTimer;
   float darkenPercent;
   
