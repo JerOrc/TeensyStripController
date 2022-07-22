@@ -1,17 +1,14 @@
 /*  OctoWS2811 - High Performance WS2811 LED Display Library
     http://www.pjrc.com/teensy/td_libs_OctoWS2811.html
     Copyright (c) 2013 Paul Stoffregen, PJRC.COM, LLC
-
     Permission is hereby granted, free of charge, to any person obtaining a copy
     of this software and associated documentation files (the "Software"), to deal
     in the Software without restriction, including without limitation the rights
     to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
     copies of the Software, and to permit persons to whom the Software is
     furnished to do so, subject to the following conditions:
-
     The above copyright notice and this permission notice shall be included in
     all copies or substantial portions of the Software.
-
     THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
     IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
     FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -21,18 +18,17 @@
     THE SOFTWARE.
 */
 
-/*	Remark:
-	This is a slightly extended version of the original OctoWS2811 lib. It contains
-	a extra method to set the number of leds per strip dynamically.
-
-	Thanks to the author of the lib for his excellent work.
+/*  Remark:
+  This is a slightly extended version of the original OctoWS2811 lib. It contains
+  a extra method to set the number of leds per strip dynamically.
+  Thanks to the author of the lib for his excellent work.
 */
 
 
-
-#include <string.h>
+#include <Arduino.h>
 #include "OctoWS2811Ext.h"
 
+#if defined(__MK20DX128__) || defined(__MK20DX256__) || defined(__MK64FX512__) || defined(__MK66FX1M0__) || defined(__MKL26Z64__)
 
 uint16_t OctoWS2811Ext::stripLen;
 void * OctoWS2811Ext::frameBuffer;
@@ -46,13 +42,12 @@ static uint8_t ones = 0xFF;
 static volatile uint8_t update_in_progress = 0;
 static uint32_t update_completed_at = 0;
 
-
 OctoWS2811Ext::OctoWS2811Ext(uint32_t numPerStrip, void *frameBuf, void *drawBuf, uint8_t config)
 {
-	stripLen = numPerStrip;
-	frameBuffer = frameBuf;
-	drawBuffer = drawBuf;
-	params = config;
+  stripLen = numPerStrip;
+  frameBuffer = frameBuf;
+  drawBuffer = drawBuf;
+  params = config;
 }
 
 // Waveform timing: these set the high time for a 0 and 1 bit, as a fraction of
@@ -74,32 +69,40 @@ OctoWS2811Ext::OctoWS2811Ext(uint32_t numPerStrip, void *frameBuf, void *drawBuf
 #define WS2811_TIMING_T1H  176
 
 // Discussion about timing and flicker & color shift issues:
-// http://forum.pjrc.com/threads/23877-WS2812B-compatible-with-OctoWS2811Ext-library?p=38190&viewfull=1#post38190
+// http://forum.pjrc.com/threads/23877-WS2812B-compatible-with-OctoWS2811-library?p=38190&viewfull=1#post38190
 
+void OctoWS2811Ext::begin(uint32_t numPerStrip, void *frameBuf, void *drawBuf, uint8_t config)
+{
+  stripLen = numPerStrip;
+  frameBuffer = frameBuf;
+  drawBuffer = drawBuf;
+  params = config;
+  begin();
+}
 
 void OctoWS2811Ext::begin(void)
 {
-	uint32_t bufsize, frequency;
-	bufsize = stripLen*24;
+  uint32_t bufsize, frequency;
+  bufsize = stripLen*24;
 
-	// set up the buffers
-	memset(frameBuffer, 0, bufsize);
-	if (drawBuffer) {
-		memset(drawBuffer, 0, bufsize);
-	} else {
-		drawBuffer = frameBuffer;
-	}
+  // set up the buffers
+  memset(frameBuffer, 0, bufsize);
+  if (drawBuffer) {
+    memset(drawBuffer, 0, bufsize);
+  } else {
+    drawBuffer = frameBuffer;
+  }
 
-	// configure the 8 output pins
-	GPIOD_PCOR = 0xFF;
-	pinMode(2, OUTPUT);	// strip #1
-	pinMode(14, OUTPUT);	// strip #2
-	pinMode(7, OUTPUT);	// strip #3
-	pinMode(8, OUTPUT);	// strip #4
-	pinMode(6, OUTPUT);	// strip #5
-	pinMode(20, OUTPUT);	// strip #6
-	pinMode(21, OUTPUT);	// strip #7
-	pinMode(5, OUTPUT);	// strip #8
+  // configure the 8 output pins
+  GPIOD_PCOR = 0xFF;
+  pinMode(2, OUTPUT); // strip #1
+  pinMode(14, OUTPUT);  // strip #2
+  pinMode(7, OUTPUT); // strip #3
+  pinMode(8, OUTPUT); // strip #4
+  pinMode(6, OUTPUT); // strip #5
+  pinMode(20, OUTPUT);  // strip #6
+  pinMode(21, OUTPUT);  // strip #7
+  pinMode(5, OUTPUT); // strip #8
 
   // create the two waveforms for WS2811 low and high bits
   switch (params & 0xF0) {
@@ -116,6 +119,22 @@ void OctoWS2811Ext::begin(void)
     frequency = 800000;
   }
 
+
+#if defined(__MK20DX128__)
+  FTM1_SC = 0;
+  FTM1_CNT = 0;
+  uint32_t mod = (F_BUS + frequency / 2) / frequency;
+  FTM1_MOD = mod - 1;
+  FTM1_SC = FTM_SC_CLKS(1) | FTM_SC_PS(0);
+  FTM1_C0SC = 0x69;
+  FTM1_C1SC = 0x69;
+  FTM1_C0V = (mod * WS2811_TIMING_T0H) >> 8;
+  FTM1_C1V = (mod * WS2811_TIMING_T1H) >> 8;
+  // pin 16 triggers DMA(port B) on rising edge
+  CORE_PIN16_CONFIG = PORT_PCR_IRQC(1)|PORT_PCR_MUX(3);
+  //CORE_PIN4_CONFIG = PORT_PCR_MUX(3); // testing only
+
+#elif defined(__MK20DX256__)
   FTM2_SC = 0;
   FTM2_CNT = 0;
   uint32_t mod = (F_BUS + frequency / 2) / frequency;
@@ -129,6 +148,32 @@ void OctoWS2811Ext::begin(void)
   // pin 25 is FTM2_CH1, PTB19
   CORE_PIN32_CONFIG = PORT_PCR_IRQC(1)|PORT_PCR_MUX(3);
   //CORE_PIN25_CONFIG = PORT_PCR_MUX(3); // testing only
+
+#elif defined(__MK64FX512__) || defined(__MK66FX1M0__)
+  FTM2_SC = 0;
+  FTM2_CNT = 0;
+  uint32_t mod = (F_BUS + frequency / 2) / frequency;
+  FTM2_MOD = mod - 1;
+  FTM2_SC = FTM_SC_CLKS(1) | FTM_SC_PS(0);
+  FTM2_C0SC = 0x69;
+  FTM2_C1SC = 0x69;
+  FTM2_C0V = (mod * WS2811_TIMING_T0H) >> 8;
+  FTM2_C1V = (mod * WS2811_TIMING_T1H) >> 8;
+  // FTM2_CH0, PTA10 (not connected), triggers DMA(port A) on rising edge
+  PORTA_PCR10 = PORT_PCR_IRQC(1)|PORT_PCR_MUX(3);
+
+#elif defined(__MKL26Z64__)
+  FTM2_SC = 0;
+  FTM2_CNT = 0;
+  uint32_t mod = F_CPU / frequency;
+  FTM2_MOD = mod - 1;
+  FTM2_SC = FTM_SC_CLKS(1) | FTM_SC_PS(0);
+  FTM2_C0SC = FTM_CSC_CHF | FTM_CSC_MSB | FTM_CSC_ELSB;
+  FTM2_C1SC = FTM_CSC_CHF | FTM_CSC_MSB | FTM_CSC_ELSB;
+  TPM2_C0V = mod - ((mod * WS2811_TIMING_T1H) >> 8);
+  TPM2_C1V = mod - ((mod * WS2811_TIMING_T1H) >> 8) + ((mod * WS2811_TIMING_T0H) >> 8);
+
+#endif
 
   // DMA channel #1 sets WS2811 high at the beginning of each cycle
   dma1.source(ones);
@@ -152,11 +197,30 @@ void OctoWS2811Ext::begin(void)
   dma3.disableOnCompletion();
   dma3.interruptAtCompletion();
 
+#if defined(__MK20DX128__)
+  // route the edge detect interrupts to trigger the 3 channels
+  dma1.triggerAtHardwareEvent(DMAMUX_SOURCE_PORTB);
+  dma2.triggerAtHardwareEvent(DMAMUX_SOURCE_FTM1_CH0);
+  dma3.triggerAtHardwareEvent(DMAMUX_SOURCE_FTM1_CH1);
+  DMAPriorityOrder(dma3, dma2, dma1);
+#elif defined(__MK20DX256__)
   // route the edge detect interrupts to trigger the 3 channels
   dma1.triggerAtHardwareEvent(DMAMUX_SOURCE_PORTB);
   dma2.triggerAtHardwareEvent(DMAMUX_SOURCE_FTM2_CH0);
   dma3.triggerAtHardwareEvent(DMAMUX_SOURCE_FTM2_CH1);
   DMAPriorityOrder(dma3, dma2, dma1);
+#elif defined(__MK64FX512__) || defined(__MK66FX1M0__)
+  // route the edge detect interrupts to trigger the 3 channels
+  dma1.triggerAtHardwareEvent(DMAMUX_SOURCE_PORTA);
+  dma2.triggerAtHardwareEvent(DMAMUX_SOURCE_FTM2_CH0);
+  dma3.triggerAtHardwareEvent(DMAMUX_SOURCE_FTM2_CH1);
+  DMAPriorityOrder(dma3, dma2, dma1);
+#elif defined(__MKL26Z64__)
+  // route the timer interrupts to trigger the 3 channels
+  dma1.triggerAtHardwareEvent(DMAMUX_SOURCE_TPM2_CH0);
+  dma2.triggerAtHardwareEvent(DMAMUX_SOURCE_TPM2_CH1);
+  dma3.triggerAtHardwareEvent(DMAMUX_SOURCE_FTM2_OV);
+#endif
 
   // enable a done interrupts when channel #3 completes
   dma3.attachInterrupt(isr);
@@ -170,7 +234,9 @@ void OctoWS2811Ext::isr(void)
   //Serial1.println(dma3.CFG->DCR, HEX);
   //Serial1.print(dma3.CFG->DSR_BCR > 24, HEX);
   dma3.clearInterrupt();
-
+#if defined(__MKL26Z64__)
+  GPIOD_PCOR = 0xFF;
+#endif
   //Serial1.print("*");
   update_completed_at = micros();
   update_in_progress = 0;
@@ -179,10 +245,10 @@ void OctoWS2811Ext::isr(void)
 
 int OctoWS2811Ext::busy(void)
 {
-	if (update_in_progress) return 1;
-	// busy for 50 us after the done interrupt, for WS2811 reset
-	if (micros() - update_completed_at < 50) return 1;
-	return 0;
+  if (update_in_progress) return 1;
+  // busy for 50 (or 300 for ws2813) us after the done interrupt, for WS2811 reset
+  if (micros() - update_completed_at < 300) return 1;
+  return 0;
 }
 
 void OctoWS2811Ext::show(void)
@@ -199,10 +265,36 @@ void OctoWS2811Ext::show(void)
     memcpy(frameBuffer, drawBuffer, stripLen * 24);
   }
   // wait for WS2811 reset
-  while (micros() - update_completed_at < 50) ;
+  while (micros() - update_completed_at < 300) ;
   // ok to start, but we must be very careful to begin
   // without any prior 3 x 800kHz DMA requests pending
 
+#if defined(__MK20DX128__)
+  uint32_t cv = FTM1_C0V;
+  noInterrupts();
+  // CAUTION: this code is timing critical.
+  while (FTM1_CNT <= cv) ;
+  while (FTM1_CNT > cv) ; // wait for beginning of an 800 kHz cycle
+  while (FTM1_CNT < cv) ;
+  FTM1_SC = 0;            // stop FTM1 timer (hopefully before it rolls over)
+  FTM1_CNT = 0;
+  update_in_progress = 1;
+  //digitalWriteFast(9, HIGH); // oscilloscope trigger
+  PORTB_ISFR = (1<<0);    // clear any prior rising edge
+  uint32_t tmp __attribute__((unused));
+  FTM1_C0SC = 0x28;
+  tmp = FTM1_C0SC;        // clear any prior timer DMA triggers
+  FTM1_C0SC = 0x69;
+  FTM1_C1SC = 0x28;
+  tmp = FTM1_C1SC;
+  FTM1_C1SC = 0x69;
+  dma1.enable();
+  dma2.enable();          // enable all 3 DMA channels
+  dma3.enable();
+  FTM1_SC = FTM_SC_CLKS(1) | FTM_SC_PS(0); // restart FTM1 timer
+  //digitalWriteFast(9, LOW);
+
+#elif defined(__MK20DX256__)
   FTM2_C0SC = 0x28;
   FTM2_C1SC = 0x28;
   uint32_t cv = FTM2_C0V;
@@ -229,16 +321,75 @@ void OctoWS2811Ext::show(void)
   FTM2_SC = FTM_SC_CLKS(1) | FTM_SC_PS(0); // restart FTM2 timer
   //digitalWriteFast(9, LOW);
 
-	//Serial1.print("3");
-	interrupts();
-	//Serial1.print("4");
+#elif defined(__MK64FX512__) || defined(__MK66FX1M0__)
+  FTM2_C0SC = 0x28;
+  FTM2_C1SC = 0x28;
+  uint32_t cv = FTM2_C1V;
+  noInterrupts();
+  // CAUTION: this code is timing critical.
+  while (FTM2_CNT <= cv) ;
+  while (FTM2_CNT > cv) ; // wait for beginning of an 800 kHz cycle
+  while (FTM2_CNT < cv) ;
+  FTM2_SC = 0;             // stop FTM2 timer (hopefully before it rolls over)
+  FTM2_CNT = 0;
+  update_in_progress = 1;
+  //digitalWriteFast(9, HIGH); // oscilloscope trigger
+  #if defined(__MK64FX512__)
+  asm("nop");
+  #endif
+  PORTA_ISFR = (1<<10);    // clear any prior rising edge
+  uint32_t tmp __attribute__((unused));
+  FTM2_C0SC = 0x28;
+  tmp = FTM2_C0SC;         // clear any prior timer DMA triggers
+  FTM2_C0SC = 0x69;
+  FTM2_C1SC = 0x28;
+  tmp = FTM2_C1SC;
+  FTM2_C1SC = 0x69;
+  dma1.enable();
+  dma2.enable();           // enable all 3 DMA channels
+  dma3.enable();
+  FTM2_SC = FTM_SC_CLKS(1) | FTM_SC_PS(0); // restart FTM2 timer
+  //digitalWriteFast(9, LOW);
+
+#elif defined(__MKL26Z64__)
+  uint32_t sc __attribute__((unused)) = FTM2_SC;
+  uint32_t cv = FTM2_C1V;
+  noInterrupts();
+  while (FTM2_CNT <= cv) ;
+  while (FTM2_CNT > cv) ; // wait for beginning of an 800 kHz cycle
+  while (FTM2_CNT < cv) ;
+  FTM2_SC = 0;    // stop FTM2 timer (hopefully before it rolls over)
+  update_in_progress = 1;
+  //digitalWriteFast(9, HIGH); // oscilloscope trigger
+  dma1.clearComplete();
+  dma2.clearComplete();
+  dma3.clearComplete();
+  uint32_t bufsize = stripLen*24;
+  dma1.transferCount(bufsize);
+  dma2.transferCount(bufsize);
+  dma3.transferCount(bufsize);
+  dma2.sourceBuffer((uint8_t *)frameBuffer, bufsize);
+  // clear any pending event flags
+  FTM2_SC = FTM_SC_TOF;
+  FTM2_C0SC = FTM_CSC_CHF | FTM_CSC_MSB | FTM_CSC_ELSB | FTM_CSC_DMA;
+  FTM2_C1SC = FTM_CSC_CHF | FTM_CSC_MSB | FTM_CSC_ELSB | FTM_CSC_DMA;
+  // clear any prior pending DMA requests
+  dma1.enable();
+  dma2.enable();    // enable all 3 DMA channels
+  dma3.enable();
+  FTM2_CNT = 0; // writing any value resets counter
+  FTM2_SC = FTM_SC_DMA | FTM_SC_CLKS(1) | FTM_SC_PS(0);
+  //digitalWriteFast(9, LOW);
+#endif
+  //Serial1.print("3");
+  interrupts();
+  //Serial1.print("4");
 }
 
 void OctoWS2811Ext::setStripLength(uint16_t length)
 {
-	stripLen=length;
+  stripLen=length;
 }
-
 
 void OctoWS2811Ext::setPixel(uint32_t num, int color)
 {
@@ -263,7 +414,6 @@ void OctoWS2811Ext::setPixel(uint32_t num, int color)
     default:
     break;
   }
-
   strip = num / stripLen;  // Cortex-M4 has 2 cycle unsigned divide :-)
   offset = num % stripLen;
   
@@ -330,3 +480,5 @@ int OctoWS2811Ext::getPixel(uint32_t num)
   }
   return color;
 }
+
+#endif // supported boards
